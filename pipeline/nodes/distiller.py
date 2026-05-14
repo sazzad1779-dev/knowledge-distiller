@@ -2,6 +2,7 @@ import os
 from pipeline.state import PipelineState, DistilledSection
 from providers.gemini import GeminiProvider
 from providers.openai import OpenAIProvider
+from prompts.prompt import Feynman_Explainer, PROFESSOR_STYLE
 
 def distiller_node(state: PipelineState) -> PipelineState:
     """Node 4: Distill a single section using AI."""
@@ -29,14 +30,16 @@ def distiller_node(state: PipelineState) -> PipelineState:
         return state
 
     # Load Prompt
-    prompt_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "prompts", "distill.txt")
-    with open(prompt_path, "r") as f:
-        prompt_template = f.read()
+    prompt_template = Feynman_Explainer #os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "prompts", "distill.txt")
+
+    # with open(prompt_path, "r") as f:
+    #     prompt_template = f.read()
 
     # Format Prompt
     images_info = ", ".join([os.path.basename(p) for p in section.get("image_paths", [])]) if section.get("image_paths") else "None"
     
     prompt = prompt_template.format(
+        language_mode="story_bengali_mixed",
         title=section["title"],
         images=images_info,
         section_text=section["text"]
