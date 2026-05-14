@@ -4,7 +4,7 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from providers.base import BaseLLMProvider
 
 class GeminiProvider(BaseLLMProvider):
-    def __init__(self, model: str = "gemini-1.5-pro", temperature: float = 0.3):
+    def __init__(self, model: str = "gemini-2.5-flash", temperature: float = 0.3):
         self.llm = ChatGoogleGenerativeAI(
             model=model,
             temperature=temperature,

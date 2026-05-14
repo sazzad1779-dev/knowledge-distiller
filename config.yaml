@@ -1,7 +1,7 @@
 # LLM Provider
 llm:
   provider: "gemini"              # "gemini" | "openai"
-  gemini_model: "gemini-3-flash-preview"
+  gemini_model: "gemini-2.5-flash"
   openai_model: "gpt-4o"
   temperature: 0.3                # Low = consistent, structured output
   max_retries: 3
@@ -29,4 +29,4 @@ output:
 # Validation
 validator:
   enabled: false                  # Set to true for quality checking
-  model: "gpt-4o-mini"           # Can use a cheaper model here
+  model: "gemini-2.5-flash"           # Can use a cheaper model here

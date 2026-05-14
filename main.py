@@ -3,7 +3,15 @@ import argparse
 import yaml
 from dotenv import load_dotenv
 from rich.console import Console
-from rich.progress import Progress, SpinnerColumn, TextColumn
+from rich.progress import (
+    Progress,
+    SpinnerColumn,
+    TextColumn,
+    BarColumn,
+    MofNCompleteColumn,
+    TaskProgressColumn,
+    TimeRemainingColumn
+)
 from pipeline.graph import create_graph
 from pipeline.state import PipelineState
 
@@ -47,13 +55,62 @@ def run_pipeline(file_path: str, provider: str = None, output_dir: str = None):
     with Progress(
         SpinnerColumn(),
         TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        MofNCompleteColumn(),
+        TaskProgressColumn(),
+        TimeRemainingColumn(),
         console=console
     ) as progress:
-        task = progress.add_task("Processing...", total=None)
+        task = progress.add_task("Initializing...", total=None)
         
-        # Run the graph
-        # For simplicity, we just invoke it. In a real app, we might use stream()
-        final_state = app.invoke(initial_state)
+        final_state = initial_state
+        
+        # Use stream() to get updates from each node
+        for output in app.stream(initial_state):
+            # output is a dict: {node_name: state_updates}
+            for node_name, state_update in output.items():
+                # Update our local tracking state
+                final_state.update(state_update)
+                
+                # Update total if we just split the document
+                if "total_sections" in state_update:
+                    total = state_update["total_sections"]
+                    progress.update(task, total=total)
+                
+                # Determine description and completion status
+                current_idx = final_state.get("current_section_index", 0)
+                total_sections = final_state.get("total_sections", 0)
+                
+                if node_name == "loader":
+                    doc = state_update.get("document", {})
+                    progress.console.log(f"[bold green]✓[/bold green] Loaded document: [cyan]{doc.get('file_path')}[/cyan] ({len(doc.get('pages', []))} pages)")
+                    progress.update(task, description="[cyan]Loading document...[/cyan]")
+                elif node_name == "splitter":
+                    num_sections = state_update.get("total_sections", 0)
+                    progress.console.log(f"[bold green]✓[/bold green] Split into [bold]{num_sections}[/bold] sections")
+                    progress.update(task, description="[cyan]Splitting into sections...[/cyan]")
+                elif node_name == "image_extractor":
+                    progress.update(task, description=f"[cyan]Extracting images (Section {current_idx + 1}/{total_sections})...[/cyan]")
+                elif node_name == "distiller":
+                    # Get the last distilled section
+                    if "distilled_sections" in state_update and state_update["distilled_sections"]:
+                        last_distilled = state_update["distilled_sections"][-1]
+                        title = last_distilled.get("title", "Unknown")
+                        words = last_distilled.get("distilled_word_count", 0)
+                        concepts = last_distilled.get("concepts_found", 0)
+                        progress.console.log(f"[bold blue]AI[/bold blue] Distilled: [bold]{title}[/bold] ([magenta]{words} words[/magenta], [yellow]{concepts} concepts[/yellow])")
+                    
+                    progress.update(task, description=f"[cyan]Distilling section {current_idx + 1}/{total_sections}...[/cyan]")
+                elif node_name == "writer":
+                    progress.update(task, description=f"[cyan]Saving section {current_idx + 1}/{total_sections}...[/cyan]")
+                elif node_name == "validator":
+                    # If there are errors in this node, they will be logged later, 
+                    # but we can log success here
+                    # current_idx is now incremented (e.g., 1 after first section)
+                    if final_state.get("processing_complete"):
+                        progress.update(task, completed=current_idx, description="[bold green]All sections processed![/bold green]")
+                    else:
+                        progress.update(task, completed=current_idx, description=f"[cyan]Section {current_idx}/{total_sections} validated. Starting next...[/cyan]")
         
         if final_state["errors"]:
             console.print("\n[bold red]Errors encountered during processing:[/bold red]")

@@ -16,7 +16,7 @@ def distiller_node(state: PipelineState) -> PipelineState:
     temperature = state["config"].get("llm", {}).get("temperature", 0.3)
     
     if provider_name == "gemini":
-        model = state["config"].get("llm", {}).get("gemini_model", "gemini-1.5-pro")
+        model = state["config"].get("llm", {}).get("gemini_model", "gemini-2.5-flash")
         provider = GeminiProvider(model=model, temperature=temperature)
     elif provider_name == "openai":
         model = state["config"].get("llm", {}).get("openai_model", "gpt-4o")
@@ -34,10 +34,15 @@ def distiller_node(state: PipelineState) -> PipelineState:
         prompt_template = f.read()
 
     # Format Prompt
+    images_info = ", ".join([os.path.basename(p) for p in section.get("image_paths", [])]) if section.get("image_paths") else "None"
+    
     prompt = prompt_template.format(
         title=section["title"],
+        images=images_info,
         section_text=section["text"]
     )
+
+    # Logging is handled by the progress display in main.py
 
     try:
         distilled_content = provider.generate(prompt)

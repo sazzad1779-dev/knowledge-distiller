@@ -3,18 +3,20 @@ from providers.base import BaseLLMProvider
 
 class MockLLMProvider(BaseLLMProvider):
     def generate(self, prompt: str, system_prompt: Optional[str] = None) -> str:
-        # Simple mock response that follows the format
+        # Simple mock response that follows the new format
         return """
 ---
 ## Mock Section
 
-**Distilled Concept**
-→ This is a mock explanation for a concept found in the text.
-→ Example: This is a mock example.
+> **Summary:** This is a mock summary of the section content, providing a high-level overview.
 
-**Another Concept**
-→ Another mock explanation.
-→ Example: Another mock example.
+**Mock Concept**
+→ This is a refined mock explanation that explains complex parts in detail.
+→ Example: A practical mock example that makes the concept relatable.
+
+**Another Mock Concept**
+→ Another detailed explanation.
+→ Example: Another practical example.
 ---
 """
 
