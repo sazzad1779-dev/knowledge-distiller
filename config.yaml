@@ -10,7 +10,7 @@ llm:
 splitter:
   strategy: "auto"                # "auto" | "heading" | "page_chunk"
   min_section_words: 200
-  max_section_words: 8000
+  max_section_words: 1500
   fallback_page_chunk: 10
 
 # Images

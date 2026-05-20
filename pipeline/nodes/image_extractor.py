@@ -23,6 +23,13 @@ def image_extractor_node(state: PipelineState) -> PipelineState:
     min_height = state["config"].get("image_extractor", {}).get("min_image_height", 100)
 
     for section in state["sections"]:
+        # Skip sections we've already processed (in case of resume)
+        if section["index"] < state.get("current_section_index", 0):
+            continue
+
+        if not section.get("has_images", False):
+            continue
+
         page_start = section["page_start"]
         page_end = section["page_end"]
         

@@ -610,6 +610,7 @@ dependencies = [
     { name = "pyyaml" },
     { name = "rich" },
     { name = "tiktoken" },
+    { name = "tqdm" },
 ]
 
 [package.metadata]
@@ -631,6 +632,7 @@ requires-dist = [
     { name = "pyyaml", specifier = ">=6.0" },
     { name = "rich", specifier = ">=13.0.0" },
     { name = "tiktoken", specifier = ">=0.7.0" },
+    { name = "tqdm", specifier = ">=4.67.3" },
 ]
 
 [[package]]

@@ -11,10 +11,12 @@ def writer_node(state: PipelineState) -> PipelineState:
     sections are appended to the same file.
     """
     idx = state["current_section_index"]
-    if idx >= len(state["distilled_sections"]):
+    if not state.get("distilled_sections"):
         return {}
 
     distilled = state["distilled_sections"][-1]
+    if distilled["index"] != idx:
+        return {}
     output_config = state["config"].get("output", {})
     output_dir = output_config.get("dir", "./output")
     os.makedirs(output_dir, exist_ok=True)
@@ -23,15 +25,17 @@ def writer_node(state: PipelineState) -> PipelineState:
 
     if not output_path:
         # First section — create the output file with a header
-        doc_title = state["document"]["metadata"].get("title", "Untitled")
-        while isinstance(doc_title, (list, tuple)) and doc_title:
+        doc_title = state["document"]["metadata"].get("title")
+        if isinstance(doc_title, (list, tuple)) and doc_title:
             doc_title = doc_title[0]
-
-        if not isinstance(doc_title, str):
-            doc_title = str(doc_title)
+        if not doc_title or not str(doc_title).strip():
+            doc_title = os.path.splitext(os.path.basename(state["file_path"]))[0]
+        doc_title = str(doc_title).strip()
 
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        filename = f"{doc_title.replace(' ', '_').lower()}_distilled.md"
+        input_filename = os.path.basename(state["file_path"])
+        base_name, _ = os.path.splitext(input_filename)
+        filename = f"{base_name}.md"
         output_path = os.path.join(output_dir, filename)
 
         provider = state["config"].get("llm", {}).get("provider", "gemini")
@@ -63,6 +67,11 @@ def writer_node(state: PipelineState) -> PipelineState:
         # Guarantee the bytes hit disk before the next section starts
         f.flush()
         os.fsync(f.fileno())
+
+    # Save progress
+    progress_path = f"{output_path}.progress"
+    with open(progress_path, "w", encoding="utf-8") as f:
+        f.write(str(idx))
 
     # Return only the keys that changed so LangGraph merges them into shared state
     return {"output_file_path": output_path}

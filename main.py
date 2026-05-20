@@ -2,16 +2,8 @@ import os
 import argparse
 import yaml
 from dotenv import load_dotenv
+from tqdm import tqdm
 from rich.console import Console
-from rich.progress import (
-    Progress,
-    SpinnerColumn,
-    TextColumn,
-    BarColumn,
-    MofNCompleteColumn,
-    TaskProgressColumn,
-    TimeRemainingColumn
-)
 from pipeline.graph import create_graph
 from pipeline.state import PipelineState
 
@@ -32,6 +24,21 @@ def run_pipeline(file_path: str, provider: str = None, output_dir: str = None):
     if output_dir:
         config["output"]["dir"] = output_dir
 
+    # Check for progress to resume
+    output_dir_resolved = config.get("output", {}).get("dir", "./output")
+    base_name, _ = os.path.splitext(os.path.basename(file_path))
+    expected_output_path = os.path.join(output_dir_resolved, f"{base_name}.md")
+    expected_progress_path = f"{expected_output_path}.progress"
+    
+    resume_index = 0
+    if os.path.exists(expected_progress_path) and os.path.exists(expected_output_path):
+        try:
+            with open(expected_progress_path, "r") as f:
+                resume_index = int(f.read().strip()) + 1
+            console.print(f"[bold yellow]Found existing progress. Resuming from section {resume_index}[/bold yellow]")
+        except Exception:
+            resume_index = 0
+
     # Initialize state
     initial_state: PipelineState = {
         "file_path": file_path,
@@ -39,9 +46,9 @@ def run_pipeline(file_path: str, provider: str = None, output_dir: str = None):
         "document": None,
         "sections": [],
         "total_sections": 0,
-        "current_section_index": 0,
+        "current_section_index": resume_index,
         "distilled_sections": [],
-        "output_file_path": None,
+        "output_file_path": expected_output_path if resume_index > 0 else None,
         "errors": [],
         "token_usage": {},
         "processing_complete": False
@@ -52,30 +59,25 @@ def run_pipeline(file_path: str, provider: str = None, output_dir: str = None):
     
     console.print(f"[bold blue]Starting Knowledge Distiller for:[/bold blue] {file_path}")
     
-    with Progress(
-        SpinnerColumn(),
-        TextColumn("[progress.description]{task.description}"),
-        BarColumn(),
-        MofNCompleteColumn(),
-        TaskProgressColumn(),
-        TimeRemainingColumn(),
-        console=console
-    ) as progress:
-        task = progress.add_task("Initializing...", total=None)
-        
-        final_state = initial_state
-        
+    final_state = initial_state
+    pbar = None
+
+    def log_message(msg):
+        if pbar:
+            with console.capture() as capture:
+                console.print(msg)
+            pbar.write(capture.get().strip())
+        else:
+            console.print(msg)
+
+    try:
         # Use stream() to get updates from each node
         for output in app.stream(initial_state):
             # output is a dict: {node_name: state_updates}
             for node_name, state_update in output.items():
                 # Update our local tracking state
-                final_state.update(state_update)
-                
-                # Update total if we just split the document
-                if "total_sections" in state_update:
-                    total = state_update["total_sections"]
-                    progress.update(task, total=total)
+                if state_update is not None:
+                    final_state.update(state_update)
                 
                 # Determine description and completion status
                 current_idx = final_state.get("current_section_index", 0)
@@ -83,14 +85,23 @@ def run_pipeline(file_path: str, provider: str = None, output_dir: str = None):
                 
                 if node_name == "loader":
                     doc = state_update.get("document", {})
-                    progress.console.log(f"[bold green]✓[/bold green] Loaded document: [cyan]{doc.get('file_path')}[/cyan] ({len(doc.get('pages', []))} pages)")
-                    progress.update(task, description="[cyan]Loading document...[/cyan]")
+                    log_message(f"[bold green]✓[/bold green] Loaded document: [cyan]{doc.get('file_path')}[/cyan] ({len(doc.get('pages', []))} pages)")
                 elif node_name == "splitter":
                     num_sections = state_update.get("total_sections", 0)
-                    progress.console.log(f"[bold green]✓[/bold green] Split into [bold]{num_sections}[/bold] sections")
-                    progress.update(task, description="[cyan]Splitting into sections...[/cyan]")
+                    log_message(f"[bold green]✓[/bold green] Split into [bold]{num_sections}[/bold] sections")
+                    
+                    current_idx_for_pbar = final_state.get("current_section_index", 0)
+                    # Initialize tqdm progress bar now that we know the total sections
+                    pbar = tqdm(
+                        total=num_sections,
+                        initial=current_idx_for_pbar,
+                        desc="Processing",
+                        unit="section",
+                        bar_format="{desc}: {percentage:3.0f}%|{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]"
+                    )
                 elif node_name == "image_extractor":
-                    progress.update(task, description=f"[cyan]Extracting images (Section {current_idx + 1}/{total_sections})...[/cyan]")
+                    if pbar:
+                        pbar.set_description(f"Extracting images (Section {current_idx + 1}/{total_sections})")
                 elif node_name == "distiller":
                     # Get the last distilled section
                     if "distilled_sections" in state_update and state_update["distilled_sections"]:
@@ -98,30 +109,35 @@ def run_pipeline(file_path: str, provider: str = None, output_dir: str = None):
                         title = last_distilled.get("title", "Unknown")
                         words = last_distilled.get("distilled_word_count", 0)
                         concepts = last_distilled.get("concepts_found", 0)
-                        progress.console.log(f"[bold blue]AI[/bold blue] Distilled: [bold]{title}[/bold] ([magenta]{words} words[/magenta], [yellow]{concepts} concepts[/yellow])")
+                        log_message(f"[bold blue]AI[/bold blue] Distilled: [bold]{title}[/bold] ([magenta]{words} words[/magenta], [yellow]{concepts} concepts[/yellow])")
                     
-                    progress.update(task, description=f"[cyan]Distilling section {current_idx + 1}/{total_sections}...[/cyan]")
+                    if pbar:
+                        pbar.set_description(f"Distilling section {current_idx + 1}/{total_sections}")
                 elif node_name == "writer":
-                    progress.update(task, description=f"[cyan]Saving section {current_idx + 1}/{total_sections}...[/cyan]")
+                    if pbar:
+                        pbar.set_description(f"Saving section {current_idx + 1}/{total_sections}")
                 elif node_name == "validator":
-                    # If there are errors in this node, they will be logged later, 
-                    # but we can log success here
-                    # current_idx is now incremented (e.g., 1 after first section)
-                    if final_state.get("processing_complete"):
-                        progress.update(task, completed=current_idx, description="[bold green]All sections processed![/bold green]")
-                    else:
-                        progress.update(task, completed=current_idx, description=f"[cyan]Section {current_idx}/{total_sections} validated. Starting next...[/cyan]")
+                    if pbar:
+                        pbar.n = current_idx
+                        pbar.refresh()
+                        if final_state.get("processing_complete"):
+                            pbar.set_description("All sections processed!")
+                        else:
+                            pbar.set_description(f"Section {current_idx}/{total_sections} validated. Starting next...")
+    finally:
+        if pbar:
+            pbar.close()
         
-        if final_state["errors"]:
-            console.print("\n[bold red]Errors encountered during processing:[/bold red]")
-            for error in final_state["errors"]:
-                console.print(f"- {error}")
-        
-        if final_state["processing_complete"]:
-            console.print(f"\n[bold green]Distillation complete![/bold green]")
-            console.print(f"Output saved to: [cyan]{final_state['output_file_path']}[/cyan]")
-        else:
-            console.print("\n[bold yellow]Processing ended prematurely.[/bold yellow]")
+    if final_state["errors"]:
+        console.print("\n[bold red]Errors encountered during processing:[/bold red]")
+        for error in final_state["errors"]:
+            console.print(f"- {error}")
+    
+    if final_state["processing_complete"]:
+        console.print(f"\n[bold green]Distillation complete![/bold green]")
+        console.print(f"Output saved to: [cyan]{final_state['output_file_path']}[/cyan]")
+    else:
+        console.print("\n[bold yellow]Processing ended prematurely.[/bold yellow]")
 
 def main():
     parser = argparse.ArgumentParser(description="Knowledge Distiller — Technical Book Distillation Pipeline")

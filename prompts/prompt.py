@@ -88,7 +88,7 @@ Rules:
 Output format — no preamble, start directly:
 
 ---
-## [title]
+## {title}
 
 **⚡ One-liner:** [Single sentence capturing the whole section]
 
@@ -115,10 +115,10 @@ Output format — no preamble, start directly:
 ...
 ---
 
-Section Title: [title]
-Available Images: [images]
+Section Title: {title}
+Available Images: {images}
 Section Text:
-[section_text]
+{section_text}
 """
 
 Storyteller_Explainer = """
